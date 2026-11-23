@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/mathieuletyrant/voile-browser/compare/v1.0.0...v1.1.0) (2026-11-23)
+
+
+### ✨ Features
+
+* working macOS shell, in-app GitHub token, repositories per space ([#5](https://github.com/mathieuletyrant/voile-browser/issues/5)) ([3463680](https://github.com/mathieuletyrant/voile-browser/commit/3463680a5858c7b7f72393ce2f63bd25af3a83df))
+
 ## 1.0.0 (2026-11-23)
 
 
