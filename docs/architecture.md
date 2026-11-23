@@ -45,6 +45,11 @@ same position and in the same state (maximized, full screen), then hides the
 previous one. Everything goes through CEF's public API and behaves the same
 on the three systems.
 
+The page is added to the window **before** the sidebar. Once an Alloy view
+has associated its profile with a Chrome style window, CEF refuses the Chrome
+style view ("Cannot add multiple Chrome style BrowserViews",
+`CefBrowserViewImpl::AddedToWidget`), and the tab stays blank.
+
 Consequences:
 
 - An unloaded tab (a pinned tab never opened, or unloaded with ⌘W) has no
@@ -72,6 +77,9 @@ Handler methods you don't override return `Default::default()`, that is
 
 - `WindowDelegate::can_resize`, `can_maximize`, `can_minimize`, `can_close`
   must be overridden, otherwise the window is frozen and cannot be closed;
+- `BoxLayoutSettings::default()` aligns the cross axis on `START`, not
+  `STRETCH`: without it a view keeps its preferred height (1 px for the
+  sidebar);
 - `CommandHandler::is_chrome_app_menu_item_visible` and friends must return
   1, otherwise the Chrome menu and toolbar are empty.
 
@@ -90,7 +98,10 @@ Handler methods you don't override return `Default::default()`, that is
 Chrome's shortcuts go through `CommandHandler::on_chrome_command`:
 `IDC_NEW_TAB` opens Voile's command bar, `IDC_CLOSE_TAB` closes the *Voile*
 tab, `IDC_SELECT_NEXT_TAB` follows the sidebar order, and so on. Voile's own
-(⌘S, ⌘⇧D, ⌘⇧C) are caught by a `KeyboardHandler` before the page. On macOS
+(⌘S, ⌘⇧D, ⌘⇧C) are caught by a `KeyboardHandler` before the page. The same
+handler also takes ⌘T, ⌘L, ⌘W, ⌘⇧T, ⌘1…9 and Ctrl+Tab: Chrome commands only
+reach a Chrome style page, never the sidebar or the home page. On macOS the
+*Fichier* menu carries them too, because ⌘W never reaches the page. On macOS
 a minimal Edit menu is required for ⌘C/⌘V to work in pages.
 
 ## Known limits
@@ -99,4 +110,7 @@ a minimal Edit menu is required for ⌘C/⌘V to work in pages.
   build with `--no-default-features`.
 - An extension that opens a Chrome *window* (not a tab) gets a plain Chrome
   window, outside the sidebar.
+- Chrome's own session restore is disabled by deleting the profile's
+  `Sessions` folder at startup: after a crash it would reopen the last pages
+  in a window of its own, next to Voile's.
 - Closing the window quits Voile (no "stay in the Dock" mode).

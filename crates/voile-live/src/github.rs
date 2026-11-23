@@ -4,7 +4,30 @@
 
 use serde::Deserialize;
 use serde_json::{json, Value};
-use voile_core::{Badge, LiveItem};
+use voile_core::{Badge, LiveItem, LiveSource};
+
+/// La source restreinte aux dépôts de son espace : `owner/nom` devient
+/// `repo:owner/nom`, `owner` devient `user:owner` (GitHub les cumule en « ou »).
+/// Une entrée mal formée est ignorée : rien d'autre ne doit se glisser dans la recherche.
+pub fn scoped(source: &LiveSource, repos: &[String]) -> LiveSource {
+    let LiveSource::GithubSearch { query } = source;
+    let name = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    };
+    let mut query = query.clone();
+    for repo in repos {
+        match repo.split_once('/') {
+            Some((owner, repo_name)) if name(owner) && name(repo_name) => {
+                query.push_str(&format!(" repo:{repo}"))
+            }
+            None if name(repo) => query.push_str(&format!(" user:{repo}")),
+            _ => {}
+        }
+    }
+    LiveSource::GithubSearch { query }
+}
 
 const ENDPOINT: &str = "https://api.github.com/graphql";
 
@@ -31,7 +54,7 @@ query Voile($q: String!) {
 
 #[derive(Debug, thiserror::Error)]
 pub enum GithubError {
-    #[error("token GitHub introuvable : définis GITHUB_TOKEN ou lance `gh auth login`")]
+    #[error("token GitHub manquant")]
     NoToken,
     #[error("token GitHub refusé (401) : vérifie ses droits (repo, read:org)")]
     Unauthorized,
@@ -62,38 +85,6 @@ impl GithubClient {
             token,
             endpoint: ENDPOINT.into(),
         }
-    }
-
-    /// `GITHUB_TOKEN` / `GH_TOKEN`, sinon le token de la CLI `gh`.
-    pub async fn from_env() -> Result<Self, GithubError> {
-        for var in ["VOILE_GITHUB_TOKEN", "GITHUB_TOKEN", "GH_TOKEN"] {
-            if let Ok(t) = std::env::var(var) {
-                if !t.trim().is_empty() {
-                    return Ok(Self::new(t.trim().to_string()));
-                }
-            }
-        }
-        // Lancée depuis le Dock, l'app n'a que /usr/bin:/bin dans son PATH :
-        // on essaie aussi les emplacements habituels de Homebrew.
-        for gh in [
-            "gh",
-            "/opt/homebrew/bin/gh",
-            "/usr/local/bin/gh",
-            "/home/linuxbrew/.linuxbrew/bin/gh",
-        ] {
-            let Ok(out) = tokio::process::Command::new(gh)
-                .args(["auth", "token"])
-                .output()
-                .await
-            else {
-                continue;
-            };
-            let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
-            if out.status.success() && !token.is_empty() {
-                return Ok(Self::new(token));
-            }
-        }
-        Err(GithubError::NoToken)
     }
 
     pub async fn search(&self, query: &str) -> Result<Vec<LiveItem>, GithubError> {
@@ -245,6 +236,22 @@ fn to_item(n: RawNode) -> Option<LiveItem> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scopes_a_search_to_well_formed_repos() {
+        let repos = [
+            "getprimo/sourcehub",
+            "mathieuletyrant",
+            "a/b is:closed",
+            "a/b/c",
+        ]
+        .map(String::from);
+        let LiveSource::GithubSearch { query } = scoped(&LiveSource::github_my_prs(), &repos);
+        assert_eq!(
+            query,
+            "is:pr is:open author:@me archived:false repo:getprimo/sourcehub user:mathieuletyrant"
+        );
+    }
 
     #[test]
     fn parses_prs_and_badges() {

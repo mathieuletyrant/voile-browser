@@ -73,6 +73,12 @@ fn main() -> ExitCode {
     }
     tracing::info!("données : {}", dirs.data.display());
 
+    // Voile restaure lui-même ses onglets. Sans ce ménage, après un arrêt
+    // brutal Chrome rouvre sa dernière session dans une fenêtre à lui.
+    for profile in [dirs.chromium.join("Default"), dirs.profile.clone()] {
+        let _ = std::fs::remove_dir_all(profile.join("Sessions"));
+    }
+
     let settings = Settings {
         no_sandbox: !cfg!(feature = "sandbox") as _,
         root_cache_path: CefString::from(dirs.chromium.to_string_lossy().as_ref()),

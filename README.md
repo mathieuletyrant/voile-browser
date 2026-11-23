@@ -36,6 +36,7 @@ Spaces, pinned tabs that remember where they belong, a command bar, Chrome exten
 **GitHub Live Folders**
 
 - 🐙 **Folders fed by a GitHub search**: *to review*, *my PRs*, *mentions*, *assigned*, or any query (`is:pr is:open repo:owner/name`)
+- 🗂️ **Repositories per space**: give a space its repositories or owners (*Modifier l'espace*), its Live Folders only show those
 - 🔵 **Unread dot** for what changed since you last looked, refreshed every minute
 - 🚦 **Status at a glance**: checks passing, failing or pending, approved, changes requested, review required, draft, conflicts
 - 🔗 One click opens the PR, a second click comes back to the same tab
@@ -52,15 +53,9 @@ Spaces, pinned tabs that remember where they belong, a command bar, Chrome exten
 
 ### 🐙 GitHub token
 
-Live Folders read the first token they find:
+Live Folders need a GitHub personal access token with `repo` (private repositories) and `read:org`.
 
-| Source | |
-|---|---|
-| `VOILE_GITHUB_TOKEN` | |
-| `GITHUB_TOKEN`, `GH_TOKEN` | |
-| `gh auth token` | the simplest: run `gh auth login` once |
-
-The token needs `repo` (private repositories) and `read:org`. Apps launched from the Dock don't see your shell variables, so `gh auth login` is the way to go there (Voile finds `gh` in Homebrew's folders).
+Click **Connecter GitHub** in a Live Folder (or ⌘T → *Token GitHub*), paste the token, done. The dialog links to GitHub's token page with the right scopes ticked. Submit it empty to remove the token.
 
 ## ⌨️ Shortcuts
 
@@ -83,6 +78,7 @@ Right-click anything in the sidebar for more: move a tab to another space, mark 
 |---|---|
 | `~/Library/Application Support/cc.cheztomy.Voile/workspace.json` | spaces, tabs, folders, Live Folders |
 | `…/window.json` | window position, sidebar width |
+| `…/github-token` | the GitHub token, readable by you only |
 | `…/chromium/profile` | the Chromium profile: cookies, extensions, passwords |
 
 | Env | |
@@ -95,6 +91,7 @@ Right-click anything in the sidebar for more: move a tab to another space, mark 
 Needs Rust ≥ 1.85, CMake and Ninja (`brew install cmake ninja`). The first build downloads Chromium (CEF, ~300 MB).
 
 ```sh
+scripts/dev.sh                                # debug build, then run it on its own profile (target/dev-profile)
 scripts/build-dmg.sh                          # Voile.app and dist/Voile-<version>-<arch>.dmg
 cargo run -p voile-bundle -- -o target/bundle # debug Voile.app (Linux: target/bundle/voile)
 cargo test -p voile-core -p voile-live        # the model and GitHub sync, no Chromium needed

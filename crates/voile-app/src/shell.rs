@@ -19,6 +19,19 @@ use voile_live::{LiveService, LiveSink};
 
 const SAVE_DELAY_MS: i64 = 800;
 const TICK_MS: i64 = 60_000;
+/// Token GitHub des Live Folders, à part du workspace : il n'est jamais
+/// envoyé à la sidebar.
+const GITHUB_TOKEN_FILE: &str = "github-token";
+
+/// Écrit un fichier lisible par l'utilisateur seul.
+fn write_private(path: &std::path::Path, content: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(content.as_bytes())
+}
 
 /// Actions de l'interface qui ne touchent pas au modèle (fenêtre, focus…).
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -47,6 +60,8 @@ pub enum UiAction {
         index: usize,
     },
     ReopenClosed,
+    /// Ferme l'onglet actif (un onglet épinglé est seulement déchargé).
+    CloseTab,
     CopyUrl,
     TogglePin,
     Minimize,
@@ -54,6 +69,10 @@ pub enum UiAction {
     /// Ramène la fenêtre au premier plan (relance de l'app, clic sur le Dock).
     Raise,
     Quit,
+    /// Enregistre le token GitHub des Live Folders (vide : l'efface).
+    SetGithubToken {
+        token: String,
+    },
     DevTools {
         sidebar: bool,
     },
@@ -100,6 +119,8 @@ pub struct Shell {
     save_scheduled: bool,
     quitting: bool,
     toast: Option<String>,
+    /// Un token GitHub est enregistré (`github-token` dans le dossier de données).
+    github_token: bool,
 }
 
 thread_local! {
@@ -175,10 +196,18 @@ impl Shell {
         let sidebar_width = Arc::new(AtomicI32::new(
             geom.sidebar_width.clamp(SIDEBAR_MIN, SIDEBAR_MAX),
         ));
+        // Le token avant la configuration des dossiers : pas de premier essai à vide.
+        let live = LiveService::spawn(Sink);
+        let token = std::fs::read_to_string(dirs.data.join(GITHUB_TOKEN_FILE))
+            .ok()
+            .map(|t| t.trim().to_string())
+            .filter(|t| !t.is_empty());
+        let github_token = token.is_some();
+        live.set_token(token);
         Self {
             ws,
             store,
-            live: LiveService::spawn(Sink),
+            live,
             dirs,
             frames: HashMap::new(),
             visible: None,
@@ -192,6 +221,7 @@ impl Shell {
             save_scheduled: false,
             quitting: false,
             toast: None,
+            github_token,
         }
     }
 
@@ -225,10 +255,9 @@ impl Shell {
                         self.visible = None;
                     }
                 }
-                if self.quitting && self.open_windows == 0 {
-                    quit_message_loop();
-                }
+                self.exit_when_closed();
             }
+            Event::ExtraClosed => self.exit_when_closed(),
             Event::Save => {
                 self.save_scheduled = false;
                 self.save();
@@ -318,9 +347,9 @@ impl Shell {
     fn configure_live(&self) {
         let folders = self
             .ws
-            .live_folders()
+            .live_sources()
             .into_iter()
-            .map(|l| (l.id, l.source.clone()))
+            .map(|(id, source, repos)| (id, voile_live::scoped(&source, &repos)))
             .collect();
         let every = Duration::from_secs(self.ws.settings.live_refresh_secs);
         self.live.configure(folders, every);
@@ -341,6 +370,8 @@ impl Shell {
         match FrameWindow::create(spec) {
             Some(frame) => {
                 self.open_windows += 1;
+                #[cfg(target_os = "macos")]
+                crate::mac::disable_window_animations();
                 if let Some(old) = self.frames.insert(key, frame) {
                     old.close();
                 }
@@ -548,6 +579,11 @@ impl Shell {
                     frame.eval_sidebar(&format!("window.voile&&voile.copy({url})"));
                 }
             }
+            UiAction::CloseTab => {
+                if let Some(tab) = self.ws.active_tab() {
+                    self.apply(Command::Close { tab }, true);
+                }
+            }
             UiAction::TogglePin => {
                 if let Some(tab) = self.ws.active_tab() {
                     let cmd = if self.ws.is_pinned(tab) {
@@ -579,6 +615,7 @@ impl Shell {
                 }
             }
             UiAction::Quit => self.quit(),
+            UiAction::SetGithubToken { token } => self.set_github_token(token.trim()),
             UiAction::DevTools { sidebar } => {
                 if let Some(frame) = self.visible_frame() {
                     let view = if sidebar { &frame.sidebar } else { &frame.page };
@@ -610,17 +647,43 @@ impl Shell {
             frame.close();
         }
         self.visible = None;
-        if self.open_windows == 0 {
+        crate::frame::close_extras();
+        self.exit_when_closed();
+    }
+
+    /// Quitte la boucle de messages une fois toutes les fenêtres détruites.
+    fn exit_when_closed(&self) {
+        if self.quitting && self.open_windows == 0 && crate::frame::extras_open() == 0 {
             quit_message_loop();
         }
     }
 
     // --- état et persistance ----------------------------------------------------
 
+    fn set_github_token(&mut self, token: &str) {
+        let path = self.dirs.data.join(GITHUB_TOKEN_FILE);
+        let saved = if token.is_empty() {
+            std::fs::remove_file(&path).or_else(|e| match e.kind() {
+                std::io::ErrorKind::NotFound => Ok(()),
+                _ => Err(e),
+            })
+        } else {
+            write_private(&path, token)
+        };
+        if let Err(e) = saved {
+            self.toast = Some(format!("Token GitHub non enregistré : {e}"));
+        }
+        self.github_token = !token.is_empty();
+        self.live
+            .set_token(self.github_token.then(|| token.to_string()));
+        self.dirty = true;
+    }
+
     fn state_js(&self) -> String {
         let ctx = ViewContext {
             platform: std::env::consts::OS,
             sidebar_visible: self.geom.sidebar_visible,
+            github_token: self.github_token,
             toast: self.toast.clone(),
         };
         format!("window.voile&&voile.render({})", ui_state(&self.ws, &ctx))

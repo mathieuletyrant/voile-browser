@@ -17,7 +17,7 @@ use objc2::{
 };
 use objc2_app_kit::{
     NSApp, NSApplication, NSApplicationDelegate, NSApplicationTerminateReply, NSEvent, NSMenu,
-    NSMenuItem,
+    NSMenuItem, NSWindowAnimationBehavior,
 };
 use objc2_foundation::{ns_string, NSString};
 use std::cell::Cell;
@@ -28,6 +28,35 @@ define_class! {
     pub struct VoileAppDelegate;
 
     unsafe impl NSObjectProtocol for VoileAppDelegate {}
+
+    // Actions du menu Fichier. macOS garde certains raccourcis pour lui
+    // (Cmd+W n'arrive jamais à la page) : seul un élément de menu les reçoit.
+    impl VoileAppDelegate {
+        #[unsafe(method(voileNewTab:))]
+        fn new_tab(&self, _sender: Option<&AnyObject>) {
+            bridge::send(Event::Action(UiAction::FocusCommandBar { new_tab: true }));
+        }
+
+        #[unsafe(method(voileOpenLocation:))]
+        fn open_location(&self, _sender: Option<&AnyObject>) {
+            bridge::send(Event::Action(UiAction::FocusCommandBar { new_tab: false }));
+        }
+
+        #[unsafe(method(voileCloseTab:))]
+        fn close_tab(&self, _sender: Option<&AnyObject>) {
+            bridge::send(Event::Action(UiAction::CloseTab));
+        }
+
+        #[unsafe(method(voileReopenTab:))]
+        fn reopen_tab(&self, _sender: Option<&AnyObject>) {
+            bridge::send(Event::Action(UiAction::ReopenClosed));
+        }
+
+        #[unsafe(method(voileToggleSidebar:))]
+        fn toggle_sidebar(&self, _sender: Option<&AnyObject>) {
+            bridge::send(Event::Action(UiAction::ToggleSidebar));
+        }
+    }
 
     unsafe impl NSApplicationDelegate for VoileAppDelegate {
         #[unsafe(method(applicationShouldTerminate:))]
@@ -124,6 +153,17 @@ pub fn setup_application() {
     assert!(NSApp(mtm).isKindOfClass(VoileApplication::class()));
 }
 
+/// Changer d'onglet permute deux fenêtres : sans ça macOS fait apparaître la
+/// nouvelle en zoom, et l'ancienne se voit en fantôme derrière.
+pub fn disable_window_animations() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    for window in NSApp(mtm).windows().iter() {
+        window.setAnimationBehavior(NSWindowAnimationBehavior::None);
+    }
+}
+
 pub fn setup_app_delegate() -> Retained<VoileAppDelegate> {
     let mtm = MainThreadMarker::new().expect("thread principal");
     let delegate = VoileAppDelegate::new(mtm);
@@ -177,6 +217,43 @@ fn main_menu(mtm: MainThreadMarker) -> Retained<NSMenu> {
                 ns_string!("Quitter Voile"),
                 sel!(terminate:),
                 ns_string!("q"),
+            ),
+        ],
+    );
+    submenu(
+        mtm,
+        &bar,
+        ns_string!("Fichier"),
+        &[
+            item(
+                mtm,
+                ns_string!("Nouvel onglet"),
+                sel!(voileNewTab:),
+                ns_string!("t"),
+            ),
+            item(
+                mtm,
+                ns_string!("Ouvrir une adresse"),
+                sel!(voileOpenLocation:),
+                ns_string!("l"),
+            ),
+            item(
+                mtm,
+                ns_string!("Fermer l'onglet"),
+                sel!(voileCloseTab:),
+                ns_string!("w"),
+            ),
+            item(
+                mtm,
+                ns_string!("Rouvrir l'onglet fermé"),
+                sel!(voileReopenTab:),
+                ns_string!("T"),
+            ),
+            item(
+                mtm,
+                ns_string!("Afficher ou masquer la sidebar"),
+                sel!(voileToggleSidebar:),
+                ns_string!("s"),
             ),
         ],
     );
