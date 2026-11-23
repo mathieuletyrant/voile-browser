@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Voile</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <div id="app">
+    <header id="top" class="drag">
+      <div id="lights-space"></div>
+      <div class="nav no-drag">
+        <button id="btn-sidebar" class="icon" title="Masquer la sidebar (⌘S)" data-icon="sidebar"></button>
+        <span class="grow"></span>
+        <button id="btn-back" class="icon" title="Précédent" data-icon="back"></button>
+        <button id="btn-forward" class="icon" title="Suivant" data-icon="forward"></button>
+        <button id="btn-reload" class="icon" title="Recharger" data-icon="reload"></button>
+      </div>
+      <div id="window-buttons" class="no-drag">
+        <button data-win="minimize" title="Réduire" data-icon="minimize"></button>
+        <button data-win="toggleMaximize" title="Agrandir" data-icon="maximize"></button>
+        <button data-win="quit" title="Fermer" data-icon="close" class="danger"></button>
+      </div>
+    </header>
+
+    <div id="command" class="no-drag">
+      <div id="address" tabindex="0" title="Barre de commande (⌘L, ⌘T)">
+        <span id="address-lock" data-icon="search"></span>
+        <span id="address-text"></span>
+      </div>
+      <input id="command-input" type="text" spellcheck="false" autocomplete="off"
+             placeholder="Rechercher ou saisir une adresse" hidden>
+    </div>
+
+    <div id="palette" hidden></div>
+
+    <main id="scroll">
+      <section id="favorites"></section>
+      <section id="pinned"></section>
+      <div id="today-head" class="divider">
+        <span>Aujourd'hui</span>
+        <button id="btn-clear" class="link" title="Fermer tous les onglets non épinglés">Effacer</button>
+      </div>
+      <button id="new-tab" class="row ghost" data-drop="today">
+        <span class="fav" data-icon="plus"></span><span class="label">Nouvel onglet</span>
+        <kbd id="new-tab-kbd"></kbd>
+      </button>
+      <section id="today" data-container="today"></section>
+    </main>
+
+    <footer id="bottom">
+      <button id="btn-menu" class="icon" title="Menu" data-icon="more"></button>
+      <nav id="spaces"></nav>
+      <button id="btn-space" class="icon" title="Nouvel espace" data-icon="plus"></button>
+    </footer>
+
+    <div id="menu" class="popover" hidden></div>
+    <div id="dialog" class="popover dialog" hidden></div>
+    <div id="toast" hidden></div>
+    <div id="resize" title="Redimensionner"></div>
+  </div>
+  <script src="sidebar.js"></script>
+</body>
+</html>

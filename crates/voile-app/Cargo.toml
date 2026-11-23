@@ -1,0 +1,56 @@
+[package]
+name = "voile-app"
+description = "Shell CEF de Voile : fenêtres, sidebar, onglets Chrome avec extensions."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+default-run = "voile"
+
+[[bin]]
+name = "voile"
+path = "src/main.rs"
+
+# Exécutable des sous-processus (rendu, GPU…) sur macOS, copié par
+# `voile-bundle` dans les « Voile Helper*.app ». Inutilisé ailleurs.
+[[bin]]
+name = "voile_helper"
+path = "src/helper.rs"
+
+[package.metadata.cef.bundle]
+helper_name = "voile_helper"
+# Icône : resources/mac/voile.icns
+resources_path = "resources"
+
+[features]
+default = ["sandbox"]
+# Sandbox Chromium. Sous Windows elle impose le lanceur bootstrap.exe :
+# compiler avec `--no-default-features` (voir README).
+sandbox = ["cef/sandbox"]
+# Vérification de compilation sans binaires CEF (`cargo check -F dox`).
+# Ne produit pas d'exécutable lié.
+dox = ["cef/dox"]
+linux-x11 = ["cef/linux-x11"]
+
+[dependencies]
+voile-core.workspace = true
+voile-live.workspace = true
+anyhow.workspace = true
+cef.workspace = true
+directories.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.3"
+objc2-foundation = "0.3.2"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = [
+    "NSApplication",
+    "NSEvent",
+    "NSResponder",
+    "NSView",
+    "NSWindow",
+    "NSMenu",
+    "NSMenuItem",
+] }

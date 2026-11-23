@@ -1,0 +1,64 @@
+# Conventional commits on main → release PR (version + CHANGELOG) → merge it → GitHub release + DMG.
+name: release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      created: ${{ steps.release.outputs.release_created }}
+      tag: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # Same workflow on purpose: a release created with GITHUB_TOKEN does not trigger other workflows.
+  dmg:
+    needs: release
+    if: needs.release.outputs.created == 'true'
+    runs-on: macos-15
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - run: brew install ninja
+      # Optional: without these secrets the app is ad-hoc signed.
+      - name: Import the Developer ID certificate
+        if: env.MACOS_CERTIFICATE != ''
+        run: |
+          keychain="$RUNNER_TEMP/build.keychain"
+          password=$(uuidgen)
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" login.keychain
+      - run: scripts/build-dmg.sh 2>&1 | tee build.log; exit "${PIPESTATUS[0]}"
+        shell: bash
+      # Surfaces the end of the log as an annotation, readable without access to the logs.
+      - if: failure()
+        run: |
+          tail -n 60 build.log | grep -v '^\s*$' | python3 -c 'import sys; print("::error title=build-dmg::" + sys.stdin.read().replace("%","%25").replace("\r","").replace("\n","%0A"))'
+      - run: gh release upload "${{ needs.release.outputs.tag }}" dist/*.dmg --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
