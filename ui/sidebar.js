@@ -121,6 +121,9 @@
   };
 
   const space = () => S.spaces.find((s) => s.id === S.activeSpace) || S.spaces[0];
+  // Recherche d'un Live Folder restreinte aux dépôts de l'espace (même règle que LiveSource::scoped).
+  const scopedQuery = (l) =>
+    [l.source.query, ...(space().githubRepos || []).map((r) => `${r.includes('/') ? 'repo' : 'user'}:${r}`)].join(' ');
   const tabOf = (id) => (id == null ? null : S.tabs[id]);
   const activeTab = () => tabOf(S.activeTab);
   const allLive = () => {
@@ -213,17 +216,20 @@
     const st = l.status || {};
     const unread = l.items.filter((i) => i.unread).length;
     const empty = !l.items.length;
-    const msg = st.error
+    const connected = S.ui.githubToken;
+    const msg = !connected
+      ? '<button class="live-connect" data-connect>Connecter GitHub</button>'
+      : st.error
       ? `<div class="live-error">${esc(st.error)}</div>`
       : empty
         ? `<div class="live-empty">${st.syncing || !st.lastSync ? 'Synchronisation…' : 'Rien en attente 🎉'}</div>`
         : '';
     return `<div class="folder live${l.open ? ' open' : ''}" data-item="live:${l.id}">
-      <div class="row" draggable="true" data-node="live:${l.id}" data-toggle title="${esc(l.source.query)}">
+      <div class="row" draggable="true" data-node="live:${l.id}" data-toggle title="${esc(scopedQuery(l))}">
         <span class="chev">${icon('chevron')}</span>
         <span class="fav">${st.syncing && empty ? '<span class="spin"></span>' : icon('pr')}</span>
         <span class="label">${esc(l.name)}</span>
-        ${st.error ? `<span class="badge bad" title="${esc(st.error)}">${icon('alert')}</span>` : ''}
+        ${connected && st.error ? `<span class="badge bad" title="${esc(st.error)}">${icon('alert')}</span>` : ''}
         <span class="count${unread ? ' unread' : ''}" title="${unread ? `${unread} nouveau(x)` : `${l.items.length} élément(s)`}">${unread || l.items.length}</span>
       </div>
       <div class="children">${msg}${l.items.map((i) => liveItem(l, i)).join('')}</div>
@@ -344,6 +350,7 @@
     { label: 'Nouveau dossier', icon: 'folder', run: () => folderDialog() },
     { label: 'Nouveau Live Folder GitHub', icon: 'pr', keys: 'pr pull request github live', run: () => liveDialog() },
     { label: 'Nouvel espace', icon: 'space', run: () => spaceDialog() },
+    { label: 'Token GitHub', icon: 'key', keys: 'github token pat connecter live pr', run: () => tokenDialog() },
     { label: 'Extensions', icon: 'puzzle', keys: 'extensions modules', run: () => cmd('open', { input: 'chrome://extensions', newTab: true }) },
     { label: 'Chrome Web Store', icon: 'store', keys: 'extensions store boutique', run: () => cmd('open', { input: 'https://chromewebstore.google.com', newTab: true }) },
     {
@@ -493,6 +500,7 @@
       if (act.dataset.act === 'resetPinned') cmd('resetPinned', { tab }).then(() => cmd('activate', { tab }));
       return;
     }
+    if (e.target.closest('[data-connect]')) return void tokenDialog();
     if (tabEl) return void cmd('activate', { tab: +tabEl.dataset.tab });
     const item = e.target.closest('[data-live-item]');
     if (item) return void cmd('openLiveItem', { folder: +item.dataset.liveItem, key: item.dataset.key });
@@ -577,6 +585,8 @@
   function closeMenus() {
     menu.hidden = true;
   }
+  // Un clic dans la page n'arrive pas jusqu'ici : la perte du focus ferme les menus.
+  window.addEventListener('blur', () => closeMenus());
   document.addEventListener('mousedown', (e) => {
     if (!menu.hidden && !menu.contains(e.target)) closeMenus();
   });
@@ -631,7 +641,7 @@
       {
         label: 'Ouvrir la recherche sur GitHub',
         icon: 'github',
-        run: () => cmd('open', { input: `https://github.com/pulls?q=${encodeURIComponent(l.source.query)}`, newTab: true }),
+        run: () => cmd('open', { input: `https://github.com/pulls?q=${encodeURIComponent(scopedQuery(l))}`, newTab: true }),
       },
       { label: 'Renommer', icon: 'edit', run: () => rename(row, node) },
       null,
@@ -691,6 +701,22 @@
     }
   }
 
+  const TOKEN_URL = 'https://github.com/settings/tokens/new?scopes=repo,read:org&description=Voile';
+  function tokenDialog() {
+    openDialog(
+      `<h3>Token GitHub</h3>
+       <label>Personal access token, droits <code>repo</code> et <code>read:org</code>${S.ui.githubToken ? ' (vide : supprimer le token actuel)' : ''}</label>
+       <input name="token" type="password" autocomplete="off" placeholder="ghp_…">
+       <div class="presets" style="margin-top:6px"><button type="button" class="preset" data-new-token>Créer un token sur GitHub<small>github.com/settings/tokens</small></button></div>`,
+      (f) => {
+        const token = val(f, 'token');
+        if (!token && !S.ui.githubToken) return false;
+        ui('setGithubToken', { token });
+      },
+      (f) => ($('[data-new-token]', f).onclick = () => cmd('open', { input: TOKEN_URL, newTab: true })),
+    );
+  }
+
   function folderDialog() {
     openDialog('<h3>Nouveau dossier</h3><input name="name" value="Nouveau dossier">', (f) => {
       const name = val(f, 'name');
@@ -746,13 +772,18 @@
       `<h3>${existing ? 'Modifier l\'espace' : 'Nouvel espace'}</h3>
        <label>Nom et icône</label>
        <div class="inline"><input name="icon" class="emoji" maxlength="4" value="${esc(existing ? existing.icon : '✨')}"><input name="name" value="${esc(existing ? existing.name : 'Nouvel espace')}"></div>
-       <label>Couleurs</label><div class="swatches">${swatches}</div>`,
+       <label>Couleurs</label><div class="swatches">${swatches}</div>
+       <label>Dépôts GitHub des Live Folders (<code>owner/nom</code> ou <code>owner</code>, séparés par des espaces ; vide : tous)</label>
+       <input name="repos" spellcheck="false" placeholder="getprimo mathieuletyrant/voile-browser" value="${esc(((existing && existing.githubRepos) || []).join(' '))}">`,
       (f) => {
         const name = val(f, 'name');
         const ic = val(f, 'icon') || '✨';
         if (!name) return false;
-        if (existing) cmd('updateSpace', { space: existing.id, name, icon: ic, theme });
-        else cmd('createSpace', { name, icon: ic, theme });
+        const repos = val(f, 'repos').split(/[\s,]+/).filter(Boolean);
+        // createSpace active le nouvel espace : setSpaceRepos sans `space` le vise.
+        (existing ? cmd('updateSpace', { space: existing.id, name, icon: ic, theme }) : cmd('createSpace', { name, icon: ic, theme })).then(() =>
+          cmd('setSpaceRepos', { space: existing ? existing.id : null, repos }),
+        );
       },
       (f) =>
         $$('.swatch', f).forEach((b) =>

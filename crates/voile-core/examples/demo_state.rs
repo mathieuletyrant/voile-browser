@@ -36,8 +36,16 @@ fn main() {
     };
 
     // Espace « Dev » : Live Folders + un dossier.
-    let dev = ws.spaces[1].id;
-    ws.apply(Command::SwitchSpace { space: dev }, t).unwrap();
+    ws.apply(
+        Command::CreateSpace {
+            name: "Dev".into(),
+            icon: "🦀".into(),
+            theme: Theme::new("#c9dcf7", "#cfe9de"),
+        },
+        t,
+    )
+    .unwrap();
+    let dev = ws.active_space;
     let gh = open(&mut ws, "github.com/mathieuletyrant/cozytouch");
     titled(
         &mut ws,
@@ -158,6 +166,7 @@ fn main() {
     let ctx = ViewContext {
         platform: "macos",
         sidebar_visible: true,
+        github_token: true,
         toast: None,
     };
     println!("{}", ui_state(&ws, &ctx));

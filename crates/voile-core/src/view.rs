@@ -15,6 +15,8 @@ pub struct ViewContext {
     /// tricolores sur macOS et dessine ses propres boutons ailleurs).
     pub platform: &'static str,
     pub sidebar_visible: bool,
+    /// Un token GitHub est enregistré (sinon la sidebar propose d'en saisir un).
+    pub github_token: bool,
     /// Dernière erreur à afficher (commande refusée, etc.).
     pub toast: Option<String>,
 }
@@ -34,6 +36,7 @@ pub fn ui_state(ws: &Workspace, ctx: &ViewContext) -> Value {
             json!({
                 "platform": ctx.platform,
                 "sidebarVisible": ctx.sidebar_visible,
+                "githubToken": ctx.github_token,
                 "toast": ctx.toast,
             }),
         );
@@ -67,6 +70,7 @@ mod tests {
             &ViewContext {
                 platform: "macos",
                 sidebar_visible: true,
+                github_token: false,
                 toast: None,
             },
         );
@@ -75,6 +79,6 @@ mod tests {
         assert_eq!(v["recent"].as_array().unwrap().len(), RECENT);
         assert_eq!(v["activeTab"], Value::Null);
         assert_eq!(v["ui"]["platform"], "macos");
-        assert!(v["spaces"].as_array().unwrap().len() >= 2);
+        assert_eq!(v["spaces"].as_array().unwrap().len(), 1);
     }
 }

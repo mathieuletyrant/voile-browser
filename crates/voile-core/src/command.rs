@@ -89,6 +89,12 @@ pub enum Command {
         icon: Option<String>,
         theme: Option<Theme>,
     },
+    /// Dépôts GitHub des Live Folders d'un espace (`None` : l'espace actif).
+    SetSpaceRepos {
+        #[serde(default)]
+        space: Option<Id>,
+        repos: Vec<String>,
+    },
 
     // --- Live Folders --------------------------------------------------------
     AddLiveFolder {

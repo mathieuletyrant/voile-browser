@@ -212,6 +212,10 @@ pub struct Space {
     /// Onglets non épinglés (« Today » chez Arc), du plus récent au plus ancien.
     #[serde(default)]
     pub today: Vec<Id>,
+    /// Dépôts GitHub de l'espace (`owner/nom`, ou `owner` pour tous les siens) :
+    /// ses Live Folders ne montrent que ceux-là. Vide : pas de filtre.
+    #[serde(default)]
+    pub github_repos: Vec<String>,
 }
 
 /// Dégradé de la sidebar, en hex CSS.

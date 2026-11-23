@@ -9,10 +9,10 @@ pub mod github;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use voile_core::{Id, LiveItem, LiveSource};
 
-pub use github::{GithubClient, GithubError};
+pub use github::{scoped, GithubClient, GithubError};
 
 /// Reçoit les événements de synchro. Appelé depuis un thread tokio.
 pub trait LiveSink: Send + Sync + 'static {
@@ -26,6 +26,7 @@ enum Msg {
         every: Duration,
     },
     Refresh(Id),
+    Token(Option<String>),
 }
 
 #[derive(Clone)]
@@ -57,13 +58,18 @@ impl LiveService {
         let _ = self.tx.send(Msg::Configure { folders, every });
     }
 
+    /// Le token GitHub (`None` : aucun). Relance la synchro de tous les dossiers.
+    pub fn set_token(&self, token: Option<String>) {
+        let _ = self.tx.send(Msg::Token(token));
+    }
+
     pub fn refresh(&self, folder: Id) {
         let _ = self.tx.send(Msg::Refresh(folder));
     }
 }
 
 async fn run(mut rx: mpsc::UnboundedReceiver<Msg>, sink: Arc<dyn LiveSink>) {
-    let client: Arc<Mutex<Option<GithubClient>>> = Arc::default();
+    let mut client: Option<GithubClient> = None;
     let mut folders: HashMap<Id, LiveSource> = HashMap::new();
     let mut every = Duration::from_secs(60);
     let mut tick = tokio::time::interval(every);
@@ -87,6 +93,12 @@ async fn run(mut rx: mpsc::UnboundedReceiver<Msg>, sink: Arc<dyn LiveSink>) {
                         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                     }
                 }
+                Some(Msg::Token(token)) => {
+                    client = token.map(GithubClient::new);
+                    for (id, source) in &folders {
+                        spawn_sync(*id, source.clone(), client.clone(), sink.clone());
+                    }
+                }
                 Some(Msg::Refresh(id)) => {
                     if let Some(source) = folders.get(&id) {
                         spawn_sync(id, source.clone(), client.clone(), sink.clone());
@@ -105,12 +117,12 @@ async fn run(mut rx: mpsc::UnboundedReceiver<Msg>, sink: Arc<dyn LiveSink>) {
 fn spawn_sync(
     folder: Id,
     source: LiveSource,
-    client: Arc<Mutex<Option<GithubClient>>>,
+    client: Option<GithubClient>,
     sink: Arc<dyn LiveSink>,
 ) {
     tokio::spawn(async move {
         sink.started(folder);
-        let result = fetch(&source, &client).await.map_err(|e| e.to_string());
+        let result = fetch(&source, client).await.map_err(|e| e.to_string());
         if let Err(e) = &result {
             tracing::warn!(folder, "synchro Live Folder échouée : {e}");
         }
@@ -120,23 +132,11 @@ fn spawn_sync(
 
 async fn fetch(
     source: &LiveSource,
-    client: &Mutex<Option<GithubClient>>,
+    client: Option<GithubClient>,
 ) -> Result<Vec<LiveItem>, GithubError> {
     match source {
         LiveSource::GithubSearch { query } => {
-            let gh = {
-                let mut guard = client.lock().await;
-                if guard.is_none() {
-                    *guard = Some(GithubClient::from_env().await?);
-                }
-                guard.clone().expect("initialisé")
-            };
-            let res = gh.search(query).await;
-            if matches!(res, Err(GithubError::Unauthorized)) {
-                // Token révoqué/changé : on le relira au prochain essai.
-                *client.lock().await = None;
-            }
-            res
+            client.ok_or(GithubError::NoToken)?.search(query).await
         }
     }
 }

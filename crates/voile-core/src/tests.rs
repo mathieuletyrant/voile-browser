@@ -18,6 +18,13 @@ fn open(ws: &mut Workspace, url: &str) -> Id {
     }
 }
 
+/// Workspace de départ sans ses Live Folders : `pinned` est vide.
+fn bare() -> Workspace {
+    let mut ws = Workspace::new();
+    ws.spaces[0].pinned.clear();
+    ws
+}
+
 fn perso(ws: &Workspace) -> Id {
     ws.spaces[0].id
 }
@@ -64,7 +71,7 @@ fn closing_a_today_tab_archives_it_and_activates_the_next() {
 
 #[test]
 fn closing_a_pinned_tab_only_unloads_it_and_resets_its_url() {
-    let mut ws = Workspace::new();
+    let mut ws = bare();
     let a = open(&mut ws, "github.com");
     ws.apply(Command::Pin { tab: a }, T0).unwrap();
     ws.apply(
@@ -101,21 +108,29 @@ fn closing_a_pinned_tab_only_unloads_it_and_resets_its_url() {
 fn spaces_keep_their_own_active_tab() {
     let mut ws = Workspace::new();
     let a = open(&mut ws, "a.com");
-    let dev = ws.spaces[1].id;
-    let fx = ws.apply(Command::SwitchSpace { space: dev }, T0).unwrap();
+    let home = perso(&ws);
+    let fx = ws
+        .apply(
+            Command::CreateSpace {
+                name: "Dev".into(),
+                icon: "🦀".into(),
+                theme: Theme::new("#c9dcf7", "#cfe9de"),
+            },
+            T0,
+        )
+        .unwrap();
+    let dev = ws.active_space;
     assert!(fx.contains(&Effect::ShowEmpty));
     let b = open(&mut ws, "b.com");
     assert_eq!(ws.space(dev).unwrap().today, vec![b]);
 
-    let fx = ws
-        .apply(Command::SwitchSpace { space: perso(&ws) }, T0)
-        .unwrap();
+    let fx = ws.apply(Command::SwitchSpace { space: home }, T0).unwrap();
     assert!(fx.contains(&Effect::ShowView { tab: a }));
 }
 
 #[test]
 fn moving_tabs_into_folders_pins_them() {
-    let mut ws = Workspace::new();
+    let mut ws = bare();
     let a = open(&mut ws, "a.com");
     ws.apply(
         Command::CreateFolder {
@@ -155,7 +170,7 @@ fn moving_tabs_into_folders_pins_them() {
 
 #[test]
 fn a_folder_cannot_be_moved_into_itself() {
-    let mut ws = Workspace::new();
+    let mut ws = bare();
     ws.apply(Command::CreateFolder { name: "A".into() }, T0)
         .unwrap();
     ws.apply(Command::CreateFolder { name: "B".into() }, T0)
@@ -308,4 +323,20 @@ fn tab_order_follows_the_sidebar() {
     ws.apply(Command::Pin { tab: a }, T0).unwrap();
     assert_eq!(ws.tab_order(), vec![c, a, b]);
     assert!(ws.is_pinned(a) && ws.is_pinned(c) && !ws.is_pinned(b));
+}
+
+#[test]
+fn live_folders_carry_their_space_repos() {
+    let mut ws = Workspace::new();
+    let fx = ws
+        .apply(
+            Command::SetSpaceRepos {
+                space: None,
+                repos: vec![" getprimo ".into(), "getprimo".into(), "".into()],
+            },
+            T0,
+        )
+        .unwrap();
+    assert_eq!(fx, vec![Effect::LiveConfigChanged]);
+    assert_eq!(ws.live_sources()[0].2, vec!["getprimo".to_string()]);
 }

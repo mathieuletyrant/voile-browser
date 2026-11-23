@@ -51,8 +51,8 @@ impl Default for Workspace {
 }
 
 impl Workspace {
-    /// Espace de départ : « Perso » avec un Live Folder « À relire » branché
-    /// sur les PR GitHub qui attendent ta review.
+    /// Espace de départ : un seul, « Perso », avec les Live Folders
+    /// « À relire » et « Mes PR ».
     pub fn new() -> Self {
         let mut ws = Self {
             version: FORMAT_VERSION,
@@ -66,7 +66,6 @@ impl Workspace {
             archive: Vec::new(),
         };
         let space = ws.add_space("Perso", "🏡", Theme::new("#f6d5c4", "#d9c6f2"));
-        let dev = ws.add_space("Dev", "🦀", Theme::new("#c9dcf7", "#cfe9de"));
         let live = LiveFolder {
             id: ws.id(),
             name: "À relire".into(),
@@ -85,7 +84,7 @@ impl Workspace {
             seen: BTreeMap::new(),
             status: LiveStatus::default(),
         };
-        ws.space_mut(dev).expect("créé").pinned = vec![Node::Live(live), Node::Live(mine)];
+        ws.space_mut(space).expect("créé").pinned = vec![Node::Live(live), Node::Live(mine)];
         ws.active_space = space;
         ws
     }
@@ -135,6 +134,7 @@ impl Workspace {
             theme,
             pinned: Vec::new(),
             today: Vec::new(),
+            github_repos: Vec::new(),
         });
         id
     }
@@ -179,6 +179,19 @@ impl Workspace {
             visit_nodes(&space.pinned, &mut |n| {
                 if let Node::Live(l) = n {
                     out.push(l);
+                }
+            });
+        }
+        out
+    }
+
+    /// Chaque Live Folder avec sa source et les dépôts de son espace.
+    pub fn live_sources(&self) -> Vec<(Id, LiveSource, Vec<String>)> {
+        let mut out = Vec::new();
+        for space in &self.spaces {
+            visit_nodes(&space.pinned, &mut |n| {
+                if let Node::Live(l) = n {
+                    out.push((l.id, l.source.clone(), space.github_repos.clone()));
                 }
             });
         }
@@ -360,23 +373,25 @@ impl Workspace {
             } => {
                 let active = self.active_space == space;
                 let s = self.space_mut(space)?;
+                let mut fx = Vec::new();
                 if let Some(n) = name {
                     s.name = n;
                 }
                 if let Some(i) = icon {
                     s.icon = i;
                 }
-                match theme {
-                    Some(t) => {
-                        s.theme = t.clone();
-                        if active {
-                            vec![Effect::Theme(t)]
-                        } else {
-                            vec![]
-                        }
+                if let Some(t) = theme {
+                    s.theme = t.clone();
+                    if active {
+                        fx.push(Effect::Theme(t));
                     }
-                    None => vec![],
                 }
+                fx
+            }
+            SetSpaceRepos { space, repos } => {
+                let space = space.unwrap_or(self.active_space);
+                self.space_mut(space)?.github_repos = clean_repos(repos);
+                vec![Effect::LiveConfigChanged]
             }
             AddLiveFolder { name, source } => {
                 let id = self.id();
@@ -843,4 +858,17 @@ fn take_node(nodes: &mut Vec<Node>, target: NodeRef) -> Option<Node> {
         }
     }
     None
+}
+
+/// Entrées nettoyées et sans doublon. Leur forme est vérifiée par qui s'en
+/// sert (voile-live, en construisant la recherche).
+fn clean_repos(repos: Vec<String>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for repo in repos {
+        let repo = repo.trim().to_string();
+        if !repo.is_empty() && !out.contains(&repo) {
+            out.push(repo);
+        }
+    }
+    out
 }

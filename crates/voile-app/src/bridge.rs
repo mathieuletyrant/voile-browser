@@ -25,6 +25,8 @@ pub enum Event {
     SidebarReady(FrameId),
     WindowClosing(FrameId),
     WindowDestroyed(FrameId),
+    /// Un navigateur hors cadre (popup) vient de se fermer.
+    ExtraClosed,
     Save,
     Tick,
 }

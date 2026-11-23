@@ -11,6 +11,7 @@
 use crate::bridge::{self, Event};
 use crate::shell::UiAction;
 use cef::*;
+use std::cell::RefCell;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
@@ -227,12 +228,18 @@ wrap_window_delegate! {
             let Some(window) = window else { return };
             let layout = window.set_to_box_layout(Some(&BoxLayoutSettings {
                 horizontal: 1,
+                // Le Default de cef-rs met tout à zéro (START) : sans STRETCH
+                // les vues gardent leur hauteur préférée.
+                cross_axis_alignment: AxisAlignment::STRETCH,
                 ..Default::default()
             }));
             let mut sidebar = View::from(&self.sidebar);
             let mut page = View::from(&self.page);
-            window.add_child_view(Some(&mut sidebar));
+            // La page d'abord : CEF refuse une vue Chrome style dès qu'une vue
+            // Alloy a associé son profil à la fenêtre (browser_view_impl.cc,
+            // « Cannot add multiple Chrome style BrowserViews »).
             window.add_child_view(Some(&mut page));
+            window.add_child_view_at(Some(&mut sidebar), 0);
             if let Some(layout) = layout {
                 layout.set_flex_for_view(Some(&mut sidebar), 0);
                 layout.set_flex_for_view(Some(&mut page), 1);
@@ -349,7 +356,9 @@ wrap_browser_view_delegate! {
 
     impl ViewDelegate {
         fn preferred_size(&self, _view: Option<&mut View>) -> Size {
-            Size { width: self.width.load(Ordering::Relaxed), height: 0 }
+            // Hauteur non nulle : CEF ignore une taille « vide » (largeur ou
+            // hauteur à 0) et la sidebar retombait à 0 px de large.
+            Size { width: self.width.load(Ordering::Relaxed), height: 1 }
         }
     }
 
@@ -628,7 +637,10 @@ wrap_command_handler! {
     }
 }
 
-// Raccourcis propres à Voile, valables aussi quand la page a le focus.
+// Raccourcis de Voile, quel que soit le navigateur qui a le focus (page,
+// sidebar, accueil). Ceux de Chrome (Cmd+T, Cmd+W…) y sont aussi : ses
+// commandes n'arrivent qu'à une page Chrome style, et sur macOS seulement
+// si le menu principal les porte.
 wrap_keyboard_handler! {
     struct Shortcuts;
 
@@ -650,8 +662,24 @@ wrap_keyboard_handler! {
                 sys::cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0
             };
             let shift = sys::cef_event_flags_t::EVENTFLAG_SHIFT_DOWN.0;
+            let ctrl = sys::cef_event_flags_t::EVENTFLAG_CONTROL_DOWN.0;
+            let key = event.windows_key_code;
+            // Ctrl+Tab / Ctrl+Maj+Tab : onglet suivant / précédent, sur tous les OS.
+            if key == 0x09 && event.modifiers & ctrl != 0 {
+                let delta = if event.modifiers & shift != 0 { -1 } else { 1 };
+                bridge::send(Event::Action(UiAction::CycleTab { delta }));
+                return 1;
+            }
             let mods = event.modifiers & (primary | shift);
-            let action = match (event.windows_key_code, mods) {
+            let action = match (key, mods) {
+                // Cmd/Ctrl+T, +L : barre de commande (nouvel onglet, onglet courant).
+                (0x54, m) if m == primary => UiAction::FocusCommandBar { new_tab: true },
+                (0x4c, m) if m == primary => UiAction::FocusCommandBar { new_tab: false },
+                (0x57, m) if m == primary => UiAction::CloseTab,
+                (0x54, m) if m == primary | shift => UiAction::ReopenClosed,
+                // Cmd/Ctrl+1…8 : n-ième onglet, +9 : le dernier.
+                (0x31..=0x38, m) if m == primary => UiAction::SelectIndex { index: (key - 0x31) as usize },
+                (0x39, m) if m == primary => UiAction::SelectIndex { index: usize::MAX },
                 // Cmd/Ctrl+S : afficher/masquer la sidebar (comme Arc).
                 (0x53, m) if m == primary => UiAction::ToggleSidebar,
                 // Cmd/Ctrl+Maj+C : copier l'URL de l'onglet.
@@ -766,8 +794,52 @@ wrap_display_handler! {
     }
 }
 
+// --- navigateurs hors cadres (popups OAuth, fenêtres ouvertes par Chrome) ----------
+
+thread_local! {
+    /// Le shell les ferme en quittant : sinon ils gardent le processus en
+    /// vie, sans fenêtre principale.
+    static EXTRAS: RefCell<Vec<Browser>> = const { RefCell::new(Vec::new()) };
+}
+
+pub fn extras_open() -> usize {
+    EXTRAS.with(|e| e.borrow().len())
+}
+
+pub fn close_extras() {
+    // Copie : close_browser peut rappeler on_before_close tout de suite.
+    let browsers = EXTRAS.with(|e| e.borrow().clone());
+    for host in browsers.iter().filter_map(Browser::host) {
+        host.close_browser(1);
+    }
+}
+
+wrap_life_span_handler! {
+    struct PopupLifeSpan;
+
+    impl LifeSpanHandler {
+        fn on_after_created(&self, browser: Option<&mut Browser>) {
+            if let Some(browser) = browser {
+                EXTRAS.with(|e| e.borrow_mut().push(browser.clone()));
+            }
+        }
+
+        fn on_before_close(&self, browser: Option<&mut Browser>) {
+            if let Some(browser) = browser {
+                let id = browser.identifier();
+                EXTRAS.with(|e| e.borrow_mut().retain(|b| b.identifier() != id));
+            }
+            bridge::send(Event::ExtraClosed);
+        }
+    }
+}
+
 wrap_client! {
     pub struct PopupClient;
 
-    impl Client {}
+    impl Client {
+        fn life_span_handler(&self) -> Option<LifeSpanHandler> {
+            Some(PopupLifeSpan::new())
+        }
+    }
 }
