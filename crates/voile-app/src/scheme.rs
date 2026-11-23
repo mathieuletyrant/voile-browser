@@ -123,7 +123,10 @@ fn read_post_body(request: &mut Request) -> Vec<u8> {
     let Some(post) = request.post_data() else {
         return out;
     };
-    let mut elements = Vec::with_capacity(post.element_count());
+    // cef-rs demande à CEF `elements.len()` éléments : le Vec doit être rempli, pas seulement réservé.
+    let mut elements: Vec<Option<PostDataElement>> = std::iter::repeat_with(|| None)
+        .take(post.element_count())
+        .collect();
     post.elements(Some(&mut elements));
     for element in elements.into_iter().flatten() {
         let len = element.bytes_count();
