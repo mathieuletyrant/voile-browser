@@ -150,7 +150,7 @@ fn item(
 }
 
 fn submenu(mtm: MainThreadMarker, bar: &NSMenu, title: &NSString, items: &[Retained<NSMenuItem>]) {
-    let menu = unsafe { NSMenu::initWithTitle(NSMenu::alloc(mtm), title) };
+    let menu = NSMenu::initWithTitle(NSMenu::alloc(mtm), title);
     for i in items {
         menu.addItem(i);
     }

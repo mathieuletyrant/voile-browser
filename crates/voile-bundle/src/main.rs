@@ -76,9 +76,16 @@ fn bundle(output: &Path, release: bool) -> anyhow::Result<PathBuf> {
     let resources = workspace().join("crates/voile-app/resources");
 
     // cef-rs nomme le bundle d'après l'exécutable (`voile.app`). L'exécutable
-    // et les helpers doivent garder ce nom, seul le dossier est renommé.
+    // et les helpers doivent garder ce nom, seul le dossier est renommé. Les
+    // volumes macOS ignorant la casse, `voile.app` et `Voile.app` y sont le
+    // même chemin : on construit dans un dossier à part.
+    let staging = output.join(".staging");
+    if staging.exists() {
+        std::fs::remove_dir_all(&staging)?;
+    }
+    std::fs::create_dir_all(&staging)?;
     let built = bundle(
-        output,
+        &staging,
         &target_dir(release),
         APP,
         HELPER,
@@ -90,6 +97,7 @@ fn bundle(output: &Path, release: bool) -> anyhow::Result<PathBuf> {
         std::fs::remove_dir_all(&app)?;
     }
     std::fs::rename(&built, &app)?;
+    std::fs::remove_dir_all(&staging)?;
     Ok(app)
 }
 

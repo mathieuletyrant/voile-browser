@@ -3,6 +3,7 @@ name = "voile-app"
 description = "Shell CEF de Voile : fenêtres, sidebar, onglets Chrome avec extensions."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 default-run = "voile"
 

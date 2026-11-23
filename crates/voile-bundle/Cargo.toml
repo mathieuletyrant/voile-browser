@@ -3,6 +3,7 @@ name = "voile-bundle"
 description = "Assemble Voile avec les binaires CEF (Voile.app, dossier Linux, dossier Windows)."
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 publish = false
 
