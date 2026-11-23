@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --all --check
+      - run: cargo test -p voile-core -p voile-live
+      # `dox`: type-checks the CEF shell without downloading Chromium.
+      - run: cargo clippy --workspace --all-targets --features voile-app/dox -- -D warnings
+      - run: node --check ui/sidebar.js
+
+  # Builds the real app on Apple Silicon: the DMG is attached to the run.
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - run: brew install ninja
+      - run: scripts/build-dmg.sh 2>&1 | tee build.log; exit "${PIPESTATUS[0]}"
+        shell: bash
+      # Surfaces the end of the log as an annotation, readable without access to the logs.
+      - if: failure()
+        run: |
+          tail -n 60 build.log | grep -v '^\s*$' | python3 -c 'import sys; print("::error title=build-dmg::" + sys.stdin.read().replace("%","%25").replace("\r","").replace("\n","%0A"))'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Voile-macos-arm64
+          path: dist/*.dmg
+          if-no-files-found: error

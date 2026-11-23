@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <title>Nouvel onglet</title>
+  <meta name="color-scheme" content="light dark">
+  <style>
+    :root { font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Noto Sans", system-ui, sans-serif; color: #2a2730; }
+    html, body { margin: 0; height: 100%; }
+    body {
+      display: grid; place-items: center; background: #f7f5f2;
+      background-image: radial-gradient(circle at 20% 10%, rgba(246, 213, 196, .55), transparent 45%),
+                        radial-gradient(circle at 85% 90%, rgba(217, 198, 242, .55), transparent 45%);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { color: #eeeaf3; }
+      body { background-color: #1c1b22; }
+      input { background: rgba(255, 255, 255, .07) !important; color: inherit; }
+    }
+    main { width: min(560px, 86vw); text-align: center; }
+    h1 { font-size: 30px; font-weight: 650; letter-spacing: -.02em; margin: 0 0 4px; }
+    #clock { font-variant-numeric: tabular-nums; opacity: .5; margin-bottom: 26px; }
+    form { position: relative; }
+    input {
+      width: 100%; box-sizing: border-box; height: 52px; padding: 0 20px 0 48px; font: inherit; font-size: 16px;
+      border: 0; border-radius: 14px; outline: none; background: rgba(255, 255, 255, .85);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 10px 30px rgba(0, 0, 0, .08);
+    }
+    input:focus { box-shadow: 0 0 0 3px rgba(58, 111, 216, .35), 0 10px 30px rgba(0, 0, 0, .08); }
+    svg { position: absolute; left: 17px; top: 17px; width: 18px; height: 18px; opacity: .45; }
+    .hints { margin-top: 22px; display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; font-size: 12.5px; opacity: .55; }
+    kbd { font: 600 11.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 3px 6px; border-radius: 5px; background: rgba(127, 127, 127, .16); }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Voile</h1>
+    <div id="clock"></div>
+    <form id="f">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <input id="q" autofocus spellcheck="false" autocomplete="off" placeholder="Rechercher ou saisir une adresse">
+    </form>
+    <div class="hints">
+      <span><kbd class="m">⌘</kbd> <kbd>T</kbd> nouvel onglet</span>
+      <span><kbd class="m">⌘</kbd> <kbd>S</kbd> sidebar</span>
+      <span><kbd class="m">⌘</kbd> <kbd>⇧</kbd> <kbd>D</kbd> épingler</span>
+      <span><kbd>Ctrl</kbd> <kbd>Tab</kbd> onglet suivant</span>
+    </div>
+  </main>
+  <script>
+    'use strict';
+    if (!/Mac/.test(navigator.platform)) document.querySelectorAll('kbd.m').forEach((k) => (k.textContent = 'Ctrl'));
+    const tick = () => (document.getElementById('clock').textContent = new Date().toLocaleString('fr-FR', {
+      weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit',
+    }));
+    tick();
+    setInterval(tick, 15000);
+    document.getElementById('f').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const input = document.getElementById('q').value.trim();
+      if (!input) return;
+      fetch('voile://app/api/cmd', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'open', input, newTab: true }),
+      });
+      document.getElementById('q').value = '';
+    });
+  </script>
+</body>
+</html>

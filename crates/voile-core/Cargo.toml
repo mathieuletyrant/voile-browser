@@ -1,0 +1,14 @@
+[package]
+name = "voile-core"
+description = "Modèle du navigateur Voile : espaces, onglets, dossiers, Live Folders. Aucune dépendance à CEF."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+url.workspace = true
