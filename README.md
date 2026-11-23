@@ -1,106 +1,134 @@
+<div align="center">
+
+<img src="assets/icon.svg" width="96" alt="Voile" />
+
 # Voile
 
-Un navigateur façon [Arc](https://arc.net), écrit en Rust sur Chromium
-([CEF](https://bitbucket.org/chromiumembedded/cef) via
-[cef-rs](https://github.com/tauri-apps/cef-rs)), avec :
+**An Arc-style browser, written in Rust on Chromium.**
+Spaces, pinned tabs that remember where they belong, a command bar, Chrome extensions, and folders that fill themselves with your GitHub pull requests.
 
-- **la sidebar d'Arc** : espaces avec leurs couleurs, favoris en tuiles,
-  onglets épinglés (qui reviennent à leur URL d'origine), dossiers, section
-  « Aujourd'hui » archivée automatiquement après 12 h, barre de commande ;
-- **les extensions Chrome** : les pages tournent en *Chrome style*, donc Web
-  Store, `chrome://extensions`, icônes d'extensions dans la barre Chrome ;
-- **des Live Folders GitHub** : dossiers qui se remplissent tout seuls avec
-  une recherche GitHub (PR à relire, mes PR, un dépôt…), avec pastille
-  « non lu » et badges de statut (checks, review, brouillon, conflits).
+[![Release](https://img.shields.io/github/v/release/mathieuletyrant/voile-browser?color=f27ea6&label=download&logo=apple&logoColor=white)](https://github.com/mathieuletyrant/voile-browser/releases/latest)
+![Rust](https://img.shields.io/badge/Rust-2021-dea584?logo=rust&logoColor=white)
+![Chromium](https://img.shields.io/badge/Chromium-CEF%20156-4285f4?logo=googlechrome&logoColor=white)
 
-## Lancer
+<img src="docs/screenshots/voile.png" alt="Voile: sidebar with a GitHub Live Folder, pinned tabs and today's tabs" />
 
-Prérequis : Rust ≥ 1.85, CMake et Ninja (pour `libcef_dll_wrapper`). Les
-binaires CEF (~300 Mo) sont téléchargés au premier build.
+</div>
+
+## ✨ Features
+
+**Like Arc**
+
+- 🗂️ **Spaces**: one sidebar per context (Personal, Dev…), each with its own colours and icon
+- 📌 **Pinned tabs**: they stay, unload with ⌘W, and come back to their original URL in one click
+- ⭐ **Favorites**: the tiles at the top, shared by every space
+- 📁 **Folders**: drag tabs in and out, double-click to rename
+- 🌅 **Today**: unpinned tabs are archived after 12 hours, *Clear* empties them now
+- ⌨️ **Command bar** (⌘T / ⌘L): open a URL, search the web, jump to an open tab, a pull request or a recently closed tab, run an action
+- ↔️ **Hide the sidebar** (⌘S), resize it from its edge
+
+**Chromium inside**
+
+- 🧩 **Chrome extensions**: install from the Chrome Web Store, icons in the Chrome toolbar
+- 🔑 **Chrome profile**: passwords, history, downloads, `chrome://settings`
+- 🪟 **Real popups** for sign-in flows (OAuth), everything else opens as a Voile tab
+
+**GitHub Live Folders**
+
+- 🐙 **Folders fed by a GitHub search**: *to review*, *my PRs*, *mentions*, *assigned*, or any query (`is:pr is:open repo:owner/name`)
+- 🔵 **Unread dot** for what changed since you last looked, refreshed every minute
+- 🚦 **Status at a glance**: checks passing, failing or pending, approved, changes requested, review required, draft, conflicts
+- 🔗 One click opens the PR, a second click comes back to the same tab
+
+## 🚀 Install
+
+1. Download `Voile-x.y.z-arm64.dmg` from the [latest release](https://github.com/mathieuletyrant/voile-browser/releases/latest) (Apple Silicon, macOS 12+).
+2. Open it and drag **Voile** into **Applications**.
+3. First launch: **right-click Voile → Open**, then **Open** again.
+
+> [!NOTE]
+> Releases are ad-hoc signed until a Developer ID is configured (see [Signing](#-signing)), so macOS asks for confirmation once.
+> If it says the app is damaged instead: `xattr -dr com.apple.quarantine /Applications/Voile.app`
+
+### 🐙 GitHub token
+
+Live Folders read the first token they find:
+
+| Source | |
+|---|---|
+| `VOILE_GITHUB_TOKEN` | |
+| `GITHUB_TOKEN`, `GH_TOKEN` | |
+| `gh auth token` | the simplest: run `gh auth login` once |
+
+The token needs `repo` (private repositories) and `read:org`. Apps launched from the Dock don't see your shell variables, so `gh auth login` is the way to go there (Voile finds `gh` in Homebrew's folders).
+
+## ⌨️ Shortcuts
+
+| | |
+|---|---|
+| ⌘T | Command bar, new tab |
+| ⌘L | Command bar on the current tab |
+| ⌘W | Close the tab (a pinned tab is only unloaded) |
+| ⌘⇧T | Reopen the last closed tab |
+| ⌘S | Show / hide the sidebar |
+| ⌘⇧D | Pin / unpin |
+| ⌘⇧C | Copy the URL |
+| ⌃Tab, ⌘1…9 | Next tab, n-th tab (sidebar order) |
+
+Right-click anything in the sidebar for more: move a tab to another space, mark a Live Folder read, open its search on GitHub…
+
+## 💾 Data
+
+| | |
+|---|---|
+| `~/Library/Application Support/cc.cheztomy.Voile/workspace.json` | spaces, tabs, folders, Live Folders |
+| `…/window.json` | window position, sidebar width |
+| `…/chromium/profile` | the Chromium profile: cookies, extensions, passwords |
+
+| Env | |
+|---|---|
+| `VOILE_DATA_DIR` | another data folder (a throwaway profile, for instance) |
+| `VOILE_LOG` | `debug` adds the sidebar's console and the Live Folder syncs |
+
+## 🛠️ Develop
+
+Needs Rust ≥ 1.85, CMake and Ninja (`brew install cmake ninja`). The first build downloads Chromium (CEF, ~300 MB).
 
 ```sh
-# Facultatif mais conseillé : un seul téléchargement de CEF pour tous les builds
-cargo install export-cef-dir@156.7.0   # même version que le crate cef
-export-cef-dir --force ~/.local/share/cef
-export CEF_PATH=~/.local/share/cef
-# Linux : export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$CEF_PATH"
-
-cargo run -p voile-bundle -- --release   # assemble target/bundle/
+scripts/build-dmg.sh                          # Voile.app and dist/Voile-<version>-<arch>.dmg
+cargo run -p voile-bundle -- -o target/bundle # debug Voile.app (Linux: target/bundle/voile)
+cargo test -p voile-core -p voile-live        # the model and GitHub sync, no Chromium needed
+cargo clippy --workspace --features voile-app/dox   # type-checks the CEF shell without Chromium
+VOILE_UI_DIR=$PWD/ui target/bundle/Voile.app/Contents/MacOS/voile   # sidebar read from ui/, ⌘R reloads it
+cargo run -q -p voile-core --example demo_state > /tmp/state.json   # sample state to work on ui/
 ```
 
-| OS | Résultat | Lancer |
-| --- | --- | --- |
-| macOS | `target/bundle/voile.app` (l'outil de cef-rs compile toujours en debug sur macOS) | `open target/bundle/voile.app` |
-| Linux | `target/bundle/voile` + ressources Chromium à côté | `./target/bundle/voile` |
-| Windows | non testé, voir ci-dessous | |
-
-Windows : la sandbox Chromium y impose le lanceur `bootstrap.exe`, que Voile
-ne gère pas encore. Il faut compiler sans (`cargo build -p voile-app --release
---no-default-features`) puis copier à la main les fichiers de `$CEF_PATH` à
-côté de `voile.exe` ; `voile-bundle` ne sait pas encore transmettre cette option.
-
-### Token GitHub
-
-Les Live Folders utilisent, dans l'ordre : `VOILE_GITHUB_TOKEN`,
-`GITHUB_TOKEN`, `GH_TOKEN`, puis `gh auth token`. Le plus simple : `gh auth
-login`. Il faut les droits `repo` (dépôts privés) et `read:org`.
-
-## Utiliser
-
-| Raccourci | Action |
-| --- | --- |
-| ⌘T / Ctrl+T | Barre de commande, nouvel onglet (recherche aussi dans les onglets, les PR et les onglets fermés) |
-| ⌘L / Ctrl+L | Barre de commande sur l'onglet courant |
-| ⌘W / Ctrl+W | Fermer l'onglet (un épinglé est seulement déchargé) |
-| ⌘S / Ctrl+S | Afficher/masquer la sidebar |
-| ⌘⇧D | Épingler/désépingler |
-| ⌘⇧C | Copier l'URL |
-| Ctrl+Tab, ⌘1…9 | Onglet suivant, n-ième onglet |
-| ⌘⇧T | Rouvrir le dernier onglet fermé |
-
-- **Glisser-déposer** : onglets vers les favoris, les épinglés, un dossier
-  (sur le milieu de son en-tête) ou l'icône d'un autre espace.
-- **Clic droit** partout : épingler, déplacer vers un espace, renommer
-  (ou double-clic), rafraîchir un Live Folder, tout marquer comme lu…
-- **Menu ⋯** (bas de la sidebar) : extensions, Web Store, barre Chrome,
-  historique, téléchargements, mots de passe.
-- **Live Folder** : clic droit dans la sidebar → « Nouveau Live Folder
-  GitHub », puis un préréglage ou n'importe quelle recherche GitHub
-  (`is:pr is:open repo:owner/nom`, `is:open assignee:@me`…). Rafraîchi
-  toutes les 60 s ; cliquer sur une PR l'ouvre (ou réactive son onglet).
-
-Les extensions s'installent depuis le Chrome Web Store comme dans Chrome.
-Leurs icônes apparaissent dans la barre Chrome au-dessus de la page
-(affichée par défaut ; masquable depuis le menu ⋯).
-
-## Données
-
-`workspace.json` (sidebar), `window.json` (géométrie) et le profil Chromium
-(`chromium/profile` : cookies, extensions, mots de passe) sont dans :
-
-- macOS : `~/Library/Application Support/cc.cheztomy.Voile/`
-- Linux : `~/.local/share/voile/`
-- Windows : `%APPDATA%\cheztomy\Voile\data\`
-
-`VOILE_DATA_DIR=/tmp/voile-test` donne un profil jetable.
-`VOILE_LOG=debug` affiche les journaux (y compris la console de la sidebar).
-
-## Développer
-
-```sh
-cargo test -p voile-core -p voile-live        # modèle et source GitHub, sans CEF
-cargo check -p voile-app -F voile-app/dox     # vérifie le shell sans binaires CEF
-VOILE_UI_DIR=$PWD/ui cargo run -p voile-app   # sidebar lue depuis ui/ : ⌘R pour recharger
-cargo run -q -p voile-core --example demo_state > /tmp/state.json  # état de démo pour ui/
+```
+crates/voile-core    the Arc model: Command → Effects, persistence. No CEF, fully tested
+crates/voile-live    Live Folder sync: one GitHub GraphQL search per folder, on its own tokio runtime
+crates/voile-app     the CEF shell: one frameless window per open tab, voile:// scheme, shortcuts, macOS glue
+crates/voile-bundle  assembles Voile.app (or the Linux folder) with the Chromium binaries
+ui/                  sidebar and new-tab page, plain HTML/CSS/JS embedded in the binary
 ```
 
-| Crate | Rôle |
-| --- | --- |
-| `voile-core` | Modèle d'Arc (espaces, onglets, dossiers, Live Folders) : `Command` → `Effect`, persistance. Aucune dépendance à CEF, entièrement testé. |
-| `voile-live` | Synchro des Live Folders (une requête GraphQL GitHub par dossier) sur un runtime tokio à part. |
-| `voile-app` | Shell CEF : fenêtres, sidebar, schéma `voile://`, raccourcis. |
-| `voile-bundle` | Assemble l'application avec les binaires CEF. |
-| `ui/` | Sidebar et page d'accueil (HTML/CSS/JS sans dépendance, embarqués dans le binaire). |
+Why one window per tab, and other choices: [docs/architecture.md](docs/architecture.md).
 
-Le pourquoi des choix (une fenêtre par onglet, etc.) est dans
-[docs/architecture.md](docs/architecture.md).
+### 📦 Releases
+
+Fully automatic, driven by [Conventional Commits](https://www.conventionalcommits.org) (`feat:` → minor, `fix:` → patch):
+
+1. Every push to `main` opens or updates a **release PR** with the next version and the CHANGELOG.
+2. Merging it creates the tag and GitHub release, then builds the DMG on macOS and attaches it.
+
+Every pull request also builds the DMG and attaches it to its CI run.
+
+### 🔏 Signing
+
+Add these repository secrets and releases are signed with your Developer ID and notarized, no more Gatekeeper prompt:
+
+| Secret | |
+|---|---|
+| `MACOS_CERTIFICATE` | the *Developer ID Application* certificate as a base64 `.p12` (`base64 -i cert.p12 \| pbcopy`) |
+| `MACOS_CERTIFICATE_PASSWORD` | its password |
+| `MACOS_SIGN_IDENTITY` | e.g. `Developer ID Application: Mathieu Le Tyrant (TEAMID)` |
+| `APPLE_ID`, `APPLE_TEAM_ID`, `APPLE_APP_PASSWORD` | for notarization (app-specific password from appleid.apple.com) |

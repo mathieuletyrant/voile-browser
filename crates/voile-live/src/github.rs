@@ -73,17 +73,27 @@ impl GithubClient {
                 }
             }
         }
-        let out = tokio::process::Command::new("gh")
-            .args(["auth", "token"])
-            .output()
-            .await
-            .map_err(|_| GithubError::NoToken)?;
-        let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        if out.status.success() && !token.is_empty() {
-            Ok(Self::new(token))
-        } else {
-            Err(GithubError::NoToken)
+        // Lancée depuis le Dock, l'app n'a que /usr/bin:/bin dans son PATH :
+        // on essaie aussi les emplacements habituels de Homebrew.
+        for gh in [
+            "gh",
+            "/opt/homebrew/bin/gh",
+            "/usr/local/bin/gh",
+            "/home/linuxbrew/.linuxbrew/bin/gh",
+        ] {
+            let Ok(out) = tokio::process::Command::new(gh)
+                .args(["auth", "token"])
+                .output()
+                .await
+            else {
+                continue;
+            };
+            let token = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if out.status.success() && !token.is_empty() {
+                return Ok(Self::new(token));
+            }
         }
+        Err(GithubError::NoToken)
     }
 
     pub async fn search(&self, query: &str) -> Result<Vec<LiveItem>, GithubError> {

@@ -1,108 +1,102 @@
-# Architecture de Voile
+# Architecture
 
-## Vue d'ensemble
+## Overview
 
 ```
- sidebar (JS, Alloy)  ──POST voile://app/api/cmd──▶  scheme.rs (thread IO)
-        ▲                                                   │ bridge::send
-        │ voile.render(state)                               ▼
-        └──────────── shell.rs (thread UI) ◀── file d'événements (bridge.rs)
+ sidebar (JS, Alloy)  ──POST voile://app/api/cmd──▶  scheme.rs (IO thread)
+        ▲                                                  │ bridge::send
+        │ voile.render(state)                              ▼
+        └──────────── shell.rs (UI thread) ◀── event queue (bridge.rs)
                          │  Workspace::apply(Command) → Vec<Effect>
                          ▼
-               frame.rs : fenêtres CEF, navigation, Live Folders (voile-live, tokio)
+               frame.rs: CEF windows, navigation, Live Folders (voile-live, tokio)
 ```
 
-- **`voile-core`** ne connaît pas CEF : chaque action est une `Command`,
-  le modèle répond par des `Effect` (créer/montrer/détruire une vue,
-  naviguer, synchroniser un Live Folder). Tout le comportement d'Arc
-  (épinglés qui reviennent à leur URL, archivage du Today, réutilisation de
-  l'onglet d'une PR…) est testé sans navigateur.
-- **`voile-app`** exécute ces effets avec CEF et renvoie les événements du
-  navigateur (titre, URL, chargement, popups) sous forme de commandes.
-- **La sidebar** est une page web servie par `voile://app/`. Elle reçoit
-  l'état complet à chaque changement (au plus une fois par lot
-  d'événements) et ne garde aucun état métier.
+- **`voile-core`** knows nothing about CEF. Every action is a `Command`; the
+  model answers with `Effect`s (create/show/destroy a view, navigate, sync a
+  Live Folder). All of Arc's behaviour (pinned tabs returning to their URL,
+  Today archiving, a PR reusing its tab…) is tested without a browser.
+- **`voile-app`** carries the effects out with CEF and turns browser events
+  (title, URL, loading, popups) back into commands.
+- **The sidebar** is a web page served from `voile://app/`. It receives the
+  whole state after each change (at most once per batch of events) and keeps
+  no state of its own.
 
-## Une fenêtre par onglet
+## One window per tab
 
-C'est le choix le plus visible, et il est imposé par CEF.
+The most visible choice, and CEF forces it.
 
-1. Les extensions Chrome n'existent qu'en **Chrome style** (le style
-   *Alloy* a perdu son API d'extensions en M127).
-2. La documentation de `cef_runtime_style_t` est explicite : *« a Chrome
-   style Window can host at most one Chrome style BrowserView »*. Le code le
-   confirme : `CefBrowserViewImpl::AddedToWidget` refuse une seconde vue
-   (« Cannot add multiple Chrome style BrowserViews »).
-3. Impossible non plus de **déplacer** une BrowserView Chrome style d'une
-   fenêtre à l'autre : `ChromeBrowserView::InitBrowser` lie la vue au widget
-   une seule fois (`DCHECK(!web_view_)`), il n'y a pas de chemin de
-   ré-attachement.
-4. Les fenêtres enfants natives en Chrome style marchent sous Windows et
-   Linux, mais pas sous macOS (CEF issue #3294).
+1. Chrome extensions only exist in **Chrome style** (Alloy style lost its
+   extension API in M127).
+2. The `cef_runtime_style_t` documentation says *"a Chrome style Window can
+   host at most one Chrome style BrowserView"*, and the code agrees:
+   `CefBrowserViewImpl::AddedToWidget` refuses a second one ("Cannot add
+   multiple Chrome style BrowserViews").
+3. A Chrome style BrowserView cannot **move** to another window either:
+   `ChromeBrowserView::InitBrowser` binds the view to its widget once
+   (`DCHECK(!web_view_)`), with no way to re-attach it.
+4. Chrome style native child windows work on Windows and Linux, not on macOS
+   (CEF issue #3294).
 
-Voile crée donc, pour chaque onglet **chargé**, une fenêtre sans bordure
-contenant la sidebar (BrowserView Alloy, autorisée en plusieurs
-exemplaires) et la page (Chrome style). Une seule est visible ; changer
-d'onglet montre la fenêtre cible aux mêmes coordonnées (et dans le même
-état : maximisée, plein écran) puis masque l'ancienne. Tout passe par l'API
-publique de CEF et se comporte pareil sur les trois systèmes.
+So for each **loaded** tab Voile creates a frameless window holding the
+sidebar (an Alloy BrowserView, allowed several times) and the page (Chrome
+style). Only one is visible; switching tabs shows the target window at the
+same position and in the same state (maximized, full screen), then hides the
+previous one. Everything goes through CEF's public API and behaves the same
+on the three systems.
 
-Conséquences :
+Consequences:
 
-- Un onglet déchargé (épinglé jamais ouvert, ou « déchargé » avec ⌘W) n'a
-  pas de fenêtre : seul le nombre d'onglets *ouverts* coûte de la mémoire.
-- Chaque fenêtre a sa propre sidebar. Seule la sidebar visible reçoit l'état
-  en continu ; les autres sont marquées périmées et mises à jour juste avant
-  d'être montrées (`FrameWindow::stale`).
-- Le réglage « barre Chrome » est figé à la création d'une BrowserView :
-  le changer recrée les fenêtres des onglets chargés.
+- An unloaded tab (a pinned tab never opened, or unloaded with ⌘W) has no
+  window: only *open* tabs cost memory.
+- Every window has its own sidebar. Only the visible one gets the state
+  continuously; the others are marked stale and refreshed right before being
+  shown (`FrameWindow::stale`).
+- The Chrome toolbar setting is fixed when a BrowserView is created: changing
+  it recreates the windows of loaded tabs.
 
-## Fils d'exécution et réentrance
+## Threads and re-entrancy
 
-Tous les callbacks CEF (thread UI ou IO) et les tâches tokio des Live
-Folders ne font qu'empiler un `bridge::Event`. Une tâche postée sur le thread
-UI vide la file et appelle le `Shell`, rangé dans un `thread_local`. Un appel
-CEF fait depuis le shell peut déclencher un callback synchrone : il ne fait
-qu'empiler, donc aucun double emprunt. Si le shell est malgré tout occupé
-(boucle de messages imbriquée d'une boîte de dialogue), l'événement est remis
-en tête de file et retenté 16 ms plus tard.
+Every CEF callback (UI or IO thread) and every Live Folder tokio task only
+pushes a `bridge::Event`. A task posted to the UI thread drains the queue
+and calls the `Shell`, kept in a `thread_local`. A CEF call made from the
+shell can trigger a synchronous callback: it only pushes, so nothing is
+borrowed twice. If the shell is busy anyway (nested message loop of a modal
+dialog), the event goes back to the front of the queue and is retried 16 ms
+later.
 
-## Pièges des bindings cef-rs
+## cef-rs binding traps
 
-Les méthodes non surchargées d'un handler renvoient `Default::default()`,
-soit **0**, et non la valeur par défaut de l'API C++ :
+Handler methods you don't override return `Default::default()`, that is
+**0**, not the C++ API's default:
 
 - `WindowDelegate::can_resize`, `can_maximize`, `can_minimize`, `can_close`
-  doivent être surchargées, sinon la fenêtre est figée et impossible à fermer ;
-- `CommandHandler::is_chrome_app_menu_item_visible` et consorts doivent
-  renvoyer 1, sinon le menu et la barre Chrome sont vides.
+  must be overridden, otherwise the window is frozen and cannot be closed;
+- `CommandHandler::is_chrome_app_menu_item_visible` and friends must return
+  1, otherwise the Chrome menu and toolbar are empty.
 
-## Popups et nouveaux onglets
+## Popups and new tabs
 
-`on_before_popup` :
+`on_before_popup`:
 
-- `target=_blank`, clic molette, `window.open(url)`, `chrome.tabs.create`
-  d'une extension → **onglet Voile** (`Command::PopupRequested`) ;
-- `window.open` avec dimensions (`NEW_POPUP`, typiquement OAuth) → vraie
-  fenêtre popup, avec un client à part pour ne pas écraser le titre de
-  l'onglet parent, et la barre d'adresse visible.
+- `target=_blank`, middle click, `window.open(url)`, an extension's
+  `chrome.tabs.create` → a **Voile tab** (`Command::PopupRequested`);
+- `window.open` with a size (`NEW_POPUP`, typically OAuth) → a real popup
+  window, with its own client so it doesn't overwrite the opener's title, and
+  its address bar visible.
 
-## Raccourcis
+## Shortcuts
 
-Les raccourcis de Chrome passent par `CommandHandler::on_chrome_command` :
-`IDC_NEW_TAB` ouvre la barre de commande de Voile, `IDC_CLOSE_TAB` ferme
-l'onglet *Voile*, `IDC_SELECT_NEXT_TAB` suit l'ordre de la sidebar, etc.
-Ceux propres à Voile (⌘S, ⌘⇧D, ⌘⇧C) sont captés par un `KeyboardHandler`
-avant la page. Sur macOS, un menu Édition minimal est indispensable pour que
-⌘C/⌘V fonctionnent dans les pages.
+Chrome's shortcuts go through `CommandHandler::on_chrome_command`:
+`IDC_NEW_TAB` opens Voile's command bar, `IDC_CLOSE_TAB` closes the *Voile*
+tab, `IDC_SELECT_NEXT_TAB` follows the sidebar order, and so on. Voile's own
+(⌘S, ⌘⇧D, ⌘⇧C) are caught by a `KeyboardHandler` before the page. On macOS
+a minimal Edit menu is required for ⌘C/⌘V to work in pages.
 
-## Limites connues
+## Known limits
 
-- Le module macOS (`mac.rs`) suit l'exemple `cefsimple` de cef-rs mais n'a
-  pas pu être compilé dans l'environnement où il a été écrit (Linux, sans
-  cible Apple) : le premier build Mac peut demander de petits ajustements
-  d'API objc2.
-- Windows : la sandbox impose `bootstrap.exe`, non géré (voir README).
-- Une extension qui ouvre une *fenêtre* Chrome (pas un onglet) obtient une
-  fenêtre Chrome classique, hors de la sidebar.
-- La fermeture de la fenêtre quitte Voile (pas de mode « reste dans le Dock »).
+- Windows: the Chromium sandbox requires `bootstrap.exe`, not handled yet;
+  build with `--no-default-features`.
+- An extension that opens a Chrome *window* (not a tab) gets a plain Chrome
+  window, outside the sidebar.
+- Closing the window quits Voile (no "stay in the Dock" mode).

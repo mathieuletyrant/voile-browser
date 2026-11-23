@@ -917,6 +917,7 @@
     else if (mod && k === ']' && tab != null) cmd('forward', { tab });
     else if (mod && /^[1-9]$/.test(e.key)) ui('selectIndex', { index: e.key === '9' ? 1e9 : +e.key - 1 });
     else if (e.ctrlKey && e.key === 'Tab') ui('cycleTab', { delta: e.shiftKey ? -1 : 1 });
+    else if (mod && e.shiftKey && k === 't') ui('reopenClosed');
     else if (mod && e.shiftKey && k === 'c') ui('copyUrl');
     else if (mod && e.shiftKey && k === 'd') ui('togglePin');
     else if (e.key === 'Escape' && !typing && !commandOpen) {
